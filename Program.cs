@@ -11,15 +11,29 @@ namespace nats_simple_client
         {
             var opt = NatsConnectOption.CreateDefault();
             opt.verbose = true;
-            using(var con = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault()))
+            using (var con = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault()))
             {
+                con.OnMessage += (msg) =>
+                {
+
+                };
                 const string subject = "natscsharp";
                 var sid = con.Subscribe(subject, null);
-                var dat = new byte[]{0x32,0x32};
-                var reply = con.Request(subject, "replyto", dat);
-                Console.WriteLine($"reply:{string.Join(":", reply)}");
-                con.WaitMessage().Wait();
-                System.Threading.Thread.Sleep(3000);
+                var dat = new byte[] { 0x32, 0x32 };
+                const int loopCount = 100000;
+                var sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                for (int i = 0; i < loopCount; i++)
+                {
+                    var reply = con.Request(subject, "replyto", dat);
+                    if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                    {
+                        Console.WriteLine($"reply:{i},{sw.Elapsed},{string.Join(":", reply)}");
+                    }
+                }
+                Console.WriteLine($"finished: {loopCount},{sw.Elapsed}");
+                // con.WaitMessage().Wait();
+                // System.Threading.Thread.Sleep(3000);
             }
             // using (var client = new TcpClient())
             // using (var c2 = new TcpClient())

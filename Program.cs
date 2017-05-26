@@ -15,7 +15,7 @@ namespace nats_simple_client
             {
                 con.OnMessage += (msg) =>
                 {
-
+                    return null;
                 };
                 const string subject = "natscsharp";
                 var sid = con.Subscribe(subject, null);
@@ -28,10 +28,10 @@ namespace nats_simple_client
                     var reply = con.Request(subject, "replyto", dat);
                     if (i % (loopCount / 10) == (loopCount / 10 - 1))
                     {
-                        Console.WriteLine($"reply:{i},{sw.Elapsed},{string.Join(":", reply)}");
+                        Console.WriteLine($"reply:{i},{sw.Elapsed},{Encoding.UTF8.GetString(reply)}");
                     }
                 }
-                Console.WriteLine($"finished: {loopCount},{sw.Elapsed}");
+                Console.WriteLine($"finished: {loopCount},{sw.Elapsed},rps={loopCount * 1000 / sw.ElapsedMilliseconds}");
                 // con.WaitMessage().Wait();
                 // System.Threading.Thread.Sleep(3000);
             }

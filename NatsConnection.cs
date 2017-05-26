@@ -11,6 +11,7 @@ namespace nats_simple_client
     using System.Threading.Tasks;
     using System.Collections.Concurrent;
     using System.IO;
+    using System.Buffers;
     struct NatsOk
     {
 
@@ -53,7 +54,7 @@ namespace nats_simple_client
             }
         }
         ConcurrentQueue<byte> m_EventQueue = new ConcurrentQueue<byte>();
-        byte[] m_ReceiveBuffer = new byte[4096];
+        byte[] m_SubscribeBuffer = new byte[4096];
         List<byte> m_MessageBuffer = new List<byte>();
         TcpClient m_Client;
         NetworkStream m_Stream;
@@ -65,16 +66,19 @@ namespace nats_simple_client
         Task m_ConsumeDataThread;
         ServerInfo m_ServerInfo;
         CancellationTokenSource m_CancelToken = new CancellationTokenSource();
+        ArrayPool<byte> m_BufferPool = System.Buffers.ArrayPool<byte>.Shared;
+        int m_CurrentReceivedLength = 0;
+        byte[] m_PublishBuffer = new byte[4096];
 
         private NatsConnection()
         {
             m_Client = new TcpClient();
             m_SubscribeClient = new TcpClient();
         }
-        void InitializeConnection(Stream stm, NatsConnectOption opt)
+        void InitializeConnection(Stream stm, byte[] buf, NatsConnectOption opt)
         {
-            var bytesread = stm.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-            var response = Encoding.UTF8.GetString(m_ReceiveBuffer, 0, bytesread);
+            var bytesread = stm.Read(buf, 0, buf.Length);
+            var response = Encoding.UTF8.GetString(buf, 0, bytesread);
             if (response.StartsWith("INFO "))
             {
                 var svrInfo = JSON.Deserialize<ServerInfo>(response.Substring(5));
@@ -98,10 +102,11 @@ namespace nats_simple_client
             var msg = Encoding.UTF8.GetBytes($"SUB {replyto} {sid}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
+            int offset = 0;
             if (m_Option.verbose)
             {
                 // consume +OK
-                m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
+                AllocateAndRead(m_Stream, true, ref m_PublishBuffer, ref offset);
             }
             msg = Encoding.UTF8.GetBytes($"UNSUB {sid} 1");
             m_Stream.Write(msg, 0, msg.Length);
@@ -109,15 +114,20 @@ namespace nats_simple_client
             if (m_Option.verbose)
             {
                 // consume +OK
-                m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
+                AllocateAndRead(m_Stream, true, ref m_PublishBuffer, ref offset);
             }
             msg = Encoding.UTF8.GetBytes($"PUB {subject} {replyto} {data.Length}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
             m_Stream.Write(data, 0, data.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            var bytesread = m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-            return m_ReceiveBuffer.Take(bytesread).ToArray();
+            if (m_Option.verbose)
+            {
+                // consume +OK
+                AllocateAndRead(m_Stream, true, ref m_PublishBuffer, ref offset);
+            }
+            var bytesread = m_Stream.Read(m_PublishBuffer, 0, m_PublishBuffer.Length);
+            return m_PublishBuffer.Take(bytesread).ToArray();
         }
         private void Connect(string host, int port, NatsConnectOption opt)
         {
@@ -128,8 +138,8 @@ namespace nats_simple_client
             //m_SubscribeClient.Connect(host, port);
             m_Stream = m_Client.GetStream();
             m_SubscribeStream = new BufferedStream(m_SubscribeClient.GetStream());
-            InitializeConnection(m_Stream, opt);
-            InitializeConnection(m_SubscribeStream, opt);
+            InitializeConnection(m_Stream, m_PublishBuffer, opt);
+            InitializeConnection(m_SubscribeStream, m_PublishBuffer, opt);
             // m_ConsumeDataThread = Task.FromResult(0);
             m_ConsumeDataThread = CreateMessageLoopThread();
             // m_ConsumeDataThread.Start();
@@ -148,45 +158,59 @@ namespace nats_simple_client
             // }
             m_SubscribeStream.Write(msg, 0, msg.Length);
             m_SubscribeStream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            m_SubscribeStream.Flush();
             // m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
             if (m_Option.verbose)
             {
-                var bytesread = m_SubscribeStream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-                Console.WriteLine($"sub result:{bytesread},{Encoding.UTF8.GetString(m_ReceiveBuffer, 0, bytesread)}");
+                AllocateAndRead(m_SubscribeStream, true, ref m_SubscribeBuffer, ref m_CurrentReceivedLength);
+                // Console.WriteLine($"sub result:{bytesread},{Encoding.UTF8.GetString(m_ReceiveBuffer, 0, bytesread)}");
             }
             return sid;
         }
         public void Publish(string subject, string replyTo, byte[] data)
         {
-            var reply = replyTo != null ? replyTo : "";
-            var str = $"{NatsClientMessageKind.Pub} {subject} {reply} {data.Length}";
-            var msg = System.Text.Encoding.UTF8.GetBytes(str);
-            m_Stream.Write(msg, 0, msg.Length);
-            m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            m_Stream.Write(data, 0, data.Length);
-            m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            // m_Stream.Flush();
-            if (m_Option.verbose)
-            {
-                var bytesread = m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-                Console.WriteLine($"pub result {bytesread},{Encoding.UTF8.GetString(m_ReceiveBuffer, 0, bytesread)}");
-            }
+            int offset = 0;
+            WritePublishMessage(m_Stream, subject, replyTo, data, ref m_PublishBuffer, ref offset);
         }
-        void WritePublishMessage(Stream stm, string subject, string replyTo, byte[] data)
+        void AllocateAndRead(Stream stm, bool fromPool, ref byte[] buffer, ref int dataLength)
+        {
+            if (buffer.Length * 9 / 10 < dataLength)
+            {
+                byte[] tmp = null;
+                if (fromPool)
+                {
+                    tmp = m_BufferPool.Rent(buffer.Length * 2);
+                }
+                else
+                {
+                    tmp = new byte[buffer.Length * 2];
+                }
+                Buffer.BlockCopy(buffer, 0, tmp, 0, dataLength);
+                if (fromPool)
+                {
+                    m_BufferPool.Return(buffer);
+                }
+                buffer = tmp;
+            }
+            var bytesread = stm.Read(buffer, dataLength, buffer.Length - dataLength);
+            dataLength += bytesread;
+        }
+        void WritePublishMessage(Stream stm, string subject, string replyTo, byte[] data, ref byte[] receiveData, ref int receivedLength)
         {
             var reply = replyTo != null ? replyTo : "";
             var str = $"{NatsClientMessageKind.Pub} {subject} {reply} {data.Length}";
             var msg = System.Text.Encoding.UTF8.GetBytes(str);
             stm.Write(msg, 0, msg.Length);
             stm.Write(CrLfBytes, 0, CrLfBytes.Length);
-            stm.Write(data, 0, data.Length);
+            if (data != null && data.Length != 0)
+            {
+                stm.Write(data, 0, data.Length);
+            }
             stm.Write(CrLfBytes, 0, CrLfBytes.Length);
             // m_Stream.Flush();
             if (m_Option.verbose)
             {
-                var bytesread = m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-                Console.WriteLine($"pub result {bytesread},{Encoding.UTF8.GetString(m_ReceiveBuffer, 0, bytesread)}");
+                var bytesread = stm.Read(receiveData, receivedLength, receiveData.Length - receivedLength);
+                receivedLength += bytesread;
             }
         }
         public void Unsubscribe(long sid)
@@ -198,7 +222,7 @@ namespace nats_simple_client
         }
 
         public event Action<NatsError> OnServerError;
-        public event Action<NatsMessage> OnMessage;
+        public event Func<NatsMessage, byte[]> OnMessage;
         public event Action<NatsOk> OnOk;
         event Action<NatsPing> OnPing;
         event Action<NatsPong> OnPong;
@@ -294,9 +318,9 @@ namespace nats_simple_client
         //     }
         // }
 
-        int FindCrlf(List<byte> data)
+        int FindCrlf(byte[] data)
         {
-            for (int i = 0; i < data.Count - 1; i++)
+            for (int i = 0; i < data.Length - 1; i++)
             {
                 if (data[i] == 0x0d && data[i + 1] == 0x0a)
                 {
@@ -305,7 +329,18 @@ namespace nats_simple_client
             }
             return -1;
         }
-        NatsMessage ParseMessage(Stream stm, string[] args, ref List<byte> receivedData, ref ConsumerContext ctx)
+        int FindCrlf(ValueArraySegment<byte> data)
+        {
+            for (int i = 0; i < data.Length - 1; i++)
+            {
+                if (data[i] == 0x0d && data[i + 1] == 0x0a)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        NatsMessage ParseMessage(Stream stm, string[] args, ref byte[] receivedData, ref int currentReceivedLength, ref ConsumerContext ctx)
         {
             ctx.Subject = args[0];
             ctx.Sid = long.Parse(args[1]);
@@ -319,68 +354,83 @@ namespace nats_simple_client
                 ctx.Reply = args[2];
                 ctx.Size = int.Parse(args[3]);
             }
-            ctx.Content = new List<byte>();
-            // read payload
-            while (true)
+            var data = m_BufferPool.Rent(ctx.Size);
+            Buffer.BlockCopy(receivedData, 0, data, 0, currentReceivedLength);
+            int currentDataLength = currentReceivedLength;
+            try
             {
-                var crlf = FindCrlf(receivedData);
-                if (crlf < 0)
+                // read payload
+                while (true)
                 {
-                    // no crlf found
-                    ctx.Content.AddRange(receivedData);
-                    receivedData = new List<byte>();
-                }
-                else if (crlf + ctx.Content.Count < ctx.Size)
-                {
-                    // crlf found but not all content loaded.
-                    ctx.Content.AddRange(receivedData.Take(crlf));
-                    receivedData.RemoveRange(0, crlf + 2);
-                    continue;
-                }
-                else
-                {
-                    // crlf found and all content loaded
-                    ctx.Content.AddRange(receivedData.Take(crlf));
-                    // remove consumed message
-                    receivedData.RemoveRange(0, crlf + 2);
-                    return new NatsMessage()
+                    // [data]+[CRLF]
+                    if (currentDataLength >= ctx.Size + 2)
                     {
-                        Reply = ctx.Reply
-                        ,
-                        Subject = ctx.Subject
-                        ,
-                        Data = ctx.Content
-                        ,
-                        Sid = ctx.Sid
-                    };
+                        var messageData = new byte[ctx.Size];
+                        Buffer.BlockCopy(data, 0, messageData, 0, ctx.Size);
+                        var natsMessage = new NatsMessage()
+                        {
+                            Reply = ctx.Reply
+                            ,
+                            Subject = ctx.Subject
+                            ,
+                            Data = messageData
+                            ,
+                            Sid = ctx.Sid
+                        };
+                        Buffer.BlockCopy(data, ctx.Size + 2, receivedData, 0, currentDataLength - (ctx.Size + 2));
+                        currentReceivedLength = currentDataLength - (ctx.Size + 2);
+                        return natsMessage;
+                    }
+                    else
+                    {
+                        var bytesread = stm.Read(data, currentDataLength, data.Length - currentDataLength);
+                        currentDataLength += bytesread;
+                    }
                 }
-                var bytesread = stm.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-                receivedData.AddRange(m_ReceiveBuffer.Take(bytesread));
+
+            }
+            finally
+            {
+                m_BufferPool.Return(data);
             }
         }
         static readonly char[] m_Space = new char[] { ' ' };
-        void ConsumeMessage(Stream stm, ref List<byte> receivedData, ref ConsumerContext ctx)
+        bool ConsumeMessage(Stream stm, ref byte[] receivedData, ref int currentDataLength, ref ConsumerContext ctx)
         {
-            var crlfIndex = FindCrlf(receivedData);
+            var crlfIndex = FindCrlf(new ValueArraySegment<byte>(receivedData, 0, currentDataLength));
             if (crlfIndex < 0)
             {
-                return;
+                AllocateAndRead(stm, true, ref receivedData, ref currentDataLength);
+                // var bytesread = stm.Read(receivedData, currentDataLength, receivedData.Length - currentDataLength);
+                // currentDataLength += bytesread;
+                // // if buffer usage exceed 90%, try to re-allocate buffer.
+                // if (receivedData.Length * 9 / 10 < m_CurrentReceivedLength)
+                // {
+                //     var tmp = m_BufferPool.Rent(receivedData.Length * 2);
+                //     Buffer.BlockCopy(receivedData, 0, tmp, 0, m_CurrentReceivedLength);
+                //     m_BufferPool.Return(receivedData);
+                //     receivedData = tmp;
+                // }
+                return false;
             }
             var headerString = Encoding.UTF8.GetString(receivedData.Take(crlfIndex).ToArray());
             var kindAndArg = headerString.Split(m_Space, 2);
             // CRLFを含む行データを削除する
-            receivedData = receivedData.Skip(crlfIndex + 1).ToList();
+            int remainingDataLength = receivedData.Length - crlfIndex - 2;
+            Buffer.BlockCopy(receivedData, crlfIndex + 1, receivedData, 0, remainingDataLength);
+            currentDataLength = remainingDataLength;
             switch (kindAndArg[0])
             {
                 case NatsServerMessageKind.Msg:
-                    var msg = ParseMessage(stm, kindAndArg[1].Split(' '), ref receivedData, ref ctx);
-                    //if (OnMessage != null)
-                    //{
-                    //    OnMessage(msg);
-                    //}
+                    var msg = ParseMessage(stm, kindAndArg[1].Split(' '), ref receivedData, ref currentDataLength, ref ctx);
+                    byte[] replyBuffer = null;
+                    if (OnMessage != null)
+                    {
+                        replyBuffer = OnMessage(msg);
+                    }
                     if (!string.IsNullOrEmpty(msg.Reply))
                     {
-                        WritePublishMessage(stm, msg.Reply, null, msg.Data.ToArray());
+                        WritePublishMessage(stm, msg.Reply, null, replyBuffer, ref receivedData, ref currentDataLength);
                     }
                     break;
                 case NatsServerMessageKind.Err:
@@ -396,12 +446,12 @@ namespace nats_simple_client
                 default:
                     break;
             }
-
+            // message consumed
+            return true;
         }
 
         void MessageLoop()
         {
-            var messageBytes = new List<byte>();
             ConsumerContext ctx = new ConsumerContext();
             var content = new List<byte>();
             Console.WriteLine($"thread started");
@@ -409,9 +459,10 @@ namespace nats_simple_client
             {
                 try
                 {
-                    var bytesread = m_SubscribeStream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
-                    messageBytes.AddRange(m_ReceiveBuffer.Take(bytesread));
-                    ConsumeMessage(m_SubscribeStream, ref messageBytes, ref ctx);
+                    ConsumeMessage(m_SubscribeStream, ref m_SubscribeBuffer, ref m_CurrentReceivedLength, ref ctx);
+                    // var bytesread = m_SubscribeStream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
+                    // messageBytes.AddRange(m_ReceiveBuffer.Take(bytesread));
+                    // ConsumeMessage(m_SubscribeStream, ref messageBytes, ref ctx);
                     // var bytesread = m_Stream.Read(m_ReceiveBuffer, 0, m_ReceiveBuffer.Length);
                 }
                 catch (Exception e)
@@ -512,11 +563,5 @@ namespace nats_simple_client
             // GC.SuppressFinalize(this);
         }
         #endregion
-        void X()
-        {
-            var bytes = new int[100];
-            var span = new Span<int>(bytes);
-            var s2 = span.NonPortableCast<int, byte>();
-        }
     }
 }

@@ -9,6 +9,16 @@ namespace nats_simple_client
         public const string Msg = "MSG";
         public const string Ok = "+OK";
         public const string Err = "-ERR";
+        public const string Ping = "PING";
+    }
+    enum NatsServerMessageId
+    {
+        Info,
+        Msg,
+        Ok,
+        Err,
+        Ping,
+        None,
     }
     static class NatsClientMessageKind
     {

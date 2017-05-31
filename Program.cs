@@ -2,9 +2,11 @@
 
 namespace nats_simple_client
 {
+    using System.Threading.Tasks;
     using System.Net;
     using System.Net.Sockets;
     using System.Text;
+    using System.Linq;
     class Program
     {
         static void Main(string[] args)
@@ -13,24 +15,47 @@ namespace nats_simple_client
             opt.verbose = true;
             using (var con = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault()))
             {
-                con.OnMessage += (msg) =>
-                {
-                    return null;
-                };
                 const string subject = "natscsharp";
                 var sid = con.Subscribe(subject, null);
                 var dat = new byte[] { 0x32, 0x32 };
                 const int loopCount = 100000;
                 var sw = new System.Diagnostics.Stopwatch();
                 sw.Start();
-                for (int i = 0; i < loopCount; i++)
-                {
-                    var reply = con.Request(subject, "replyto", dat);
-                    if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                Task.WhenAll(
+                    Task.Run(() =>
                     {
-                        Console.WriteLine($"reply:{i},{sw.Elapsed},{Encoding.UTF8.GetString(reply)}");
-                    }
-                }
+                        Console.WriteLine($"begin subscription");
+                        for (int i = 0; i < loopCount; i++)
+                        {
+                            while (true)
+                            {
+                                var ret = con.WaitMessage();
+                                if (ret.id == NatsServerMessageId.Msg)
+                                {
+                                    if (!string.IsNullOrEmpty(ret.msg.Reply))
+                                    {
+                                        con.Publish(ret.msg.Reply, null, ret.msg.Data.ToArray());
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    })
+                    ,
+                    Task.Run(async () =>
+                    {
+                        Console.WriteLine($"begin publish");
+                        for (int i = 0; i < loopCount; i++)
+                        {
+                            await Task.Yield();
+                            var reply = con.Request(subject, "replyto", dat);
+                            if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                            {
+                                Console.WriteLine($"reply:{i},{sw.Elapsed},{Encoding.UTF8.GetString(reply)}");
+                            }
+                        }
+                    })
+                ).Wait();
                 Console.WriteLine($"finished: {loopCount},{sw.Elapsed},rps={loopCount * 1000 / sw.ElapsedMilliseconds}");
                 // con.WaitMessage().Wait();
                 // System.Threading.Thread.Sleep(3000);

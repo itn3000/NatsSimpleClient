@@ -5,7 +5,7 @@ namespace nats_simple_client
     {
         public string Subject {get;set;}
         public string Reply {get;set;}
-        public IList<byte> Data{get;set;}
+        public byte[] Data{get;set;}
         public long Sid{get;set;}
     }
 }

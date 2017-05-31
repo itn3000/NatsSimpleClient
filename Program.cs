@@ -42,12 +42,11 @@ namespace nats_simple_client
                         }
                     })
                     ,
-                    Task.Run(async () =>
+                    Task.Run(() =>
                     {
                         Console.WriteLine($"begin publish");
                         for (int i = 0; i < loopCount; i++)
                         {
-                            await Task.Yield();
                             var reply = con.Request(subject, "replyto", dat);
                             if (i % (loopCount / 10) == (loopCount / 10 - 1))
                             {

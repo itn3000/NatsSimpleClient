@@ -9,10 +9,97 @@ namespace nats_simple_client
     using System.Linq;
     class Program
     {
-        static void Main(string[] args)
+        static void i32tob(int i, byte[] buf)
+        {
+            buf[0] = (byte)(i & 0xff);
+            buf[1] = (byte)((i >> 8) & 0xff);
+            buf[2] = (byte)((i >> 16) & 0xff);
+            buf[3] = (byte)((i >> 24) & 0xff);
+        }
+        static int btoi32(byte[] b)
+        {
+            return (int)(b[0])
+                + ((int)b[1] << 8)
+                + ((int)b[2] << 16)
+                + ((int)b[3] << 24)
+                ;
+        }
+        static void PubSub()
         {
             var opt = NatsConnectOption.CreateDefault();
-            opt.verbose = true;
+            opt.verbose = false;
+            using (var con = NatsConnection.Create("127.0.0.1", 4222, opt, true))
+            {
+                const string subject = "natscsharpp";
+                var sid = con.Subscribe(subject, null);
+                con.Flush();
+                var dat = new byte[] { 0x32, 0x32 };
+                const int loopCount = int.MaxValue/1000;
+                var sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                Task.WhenAll(
+                    Task.Run(() =>
+                    {
+                        Console.WriteLine($"begin subscription");
+                        NatsResponse lastResponse = default(NatsResponse);
+                        for (int i = 0; i < loopCount; i++)
+                        {
+                            try
+                            {
+                                while (true)
+                                {
+                                    var ret = con.WaitMessage();
+                                    if (ret.Kind == NatsServerMessageId.Msg)
+                                    {
+                                        lastResponse = ret;
+                                        if (!string.IsNullOrEmpty(ret.Msg.Reply))
+                                        {
+                                            con.Publish(ret.Msg.Reply, null, ret.Msg.Data.ToArray());
+                                        }
+                                        if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                                        {
+                                            Console.WriteLine($"msg: {btoi32(ret.Msg.Data)},{i}");
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine($"{i},{btoi32(lastResponse.Msg.Data)},{e}");
+                                throw;
+                            }
+                        }
+                    })
+                    ,
+                    Task.Run(() =>
+                    {
+                        Console.WriteLine($"begin publish");
+                        using (var producer = NatsConnection.Create("127.0.0.1", 4222, opt, true))
+                        {
+                            var buf = new byte[4];
+                            for (int i = 0; i < loopCount; i++)
+                            {
+                                i32tob(i, buf);
+                                producer.Publish(subject, null, buf);
+                                if(i % 10 == 9)
+                                {
+                                    producer.Flush();
+                                }
+                            }
+                            producer.Flush();
+                            //await Task.Delay(1000).ConfigureAwait(false);
+                            Console.WriteLine($"publish done");
+                        }
+                    })
+                ).Wait();
+                Console.WriteLine($"finished: {loopCount},{sw.Elapsed},rps={loopCount * 1000 / sw.ElapsedMilliseconds}");
+            }
+        }
+        static void ReqRep()
+        {
+            var opt = NatsConnectOption.CreateDefault();
+            opt.verbose = false;
             using (var con = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault()))
             {
                 const string subject = "natscsharp";
@@ -43,7 +130,7 @@ namespace nats_simple_client
                         }
                     })
                     ,
-                    Task.Run(() =>
+                    Task.Run(async () =>
                     {
                         Console.WriteLine($"begin publish");
                         using (var producer = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault(), true))
@@ -54,10 +141,10 @@ namespace nats_simple_client
                                 producer.Unsubscribe(reqsid, 1);
                                 producer.Publish(subject, replySubject, dat);
                                 producer.Flush();
-                                for(int j = 0;j<5;j++)
+                                for (int j = 0; j < 5; j++)
                                 {
                                     var res = producer.WaitMessage();
-                                    if(res.Kind == NatsServerMessageId.Msg)
+                                    if (res.Kind == NatsServerMessageId.Msg)
                                     {
                                         if (i % (loopCount / 10) == (loopCount / 10 - 1))
                                         {
@@ -67,6 +154,7 @@ namespace nats_simple_client
                                     }
                                 }
                             }
+                            await Task.Delay(1000).ConfigureAwait(false);
                         }
                     })
                 ).Wait();
@@ -74,35 +162,11 @@ namespace nats_simple_client
                 // con.WaitMessage().Wait();
                 // System.Threading.Thread.Sleep(3000);
             }
-            // using (var client = new TcpClient())
-            // using (var c2 = new TcpClient())
-            // {
-            //     var buf = new byte[4096];
-            //     client.Connect("127.0.0.1", 4222);
-            //     c2.Connect("127.0.0.1", 4222);
-            //     using (var stm = client.GetStream())
-            //     using (var s2 = c2.GetStream())
-            //     {
-            //         var bytesread = stm.Read(buf, 0, buf.Length);
-            //         Console.WriteLine("svr info:{0}", Encoding.UTF8.GetString(buf, 0, bytesread));
-            //         bytesread = s2.Read(buf, 0, buf.Length);
-            //         Console.WriteLine("svr info2:{0}", Encoding.UTF8.GetString(buf, 0, bytesread));
-
-            //         var wbuf = Encoding.UTF8.GetBytes("SUB hoge 1\r\n");
-            //         s2.Write(wbuf, 0, wbuf.Length);
-            //         bytesread = s2.Read(buf, 0, buf.Length);
-            //         Console.WriteLine("sub res:{0}", Encoding.UTF8.GetString(buf, 0, bytesread));
-
-            //         wbuf = Encoding.UTF8.GetBytes("PUB hoge 1\r\na\r\n");
-            //         stm.Write(wbuf, 0, wbuf.Length);
-            //         bytesread = stm.Read(buf, 0, buf.Length);
-            //         Console.WriteLine("pub res:{0}", Encoding.UTF8.GetString(buf, 0, bytesread));
-
-            //         bytesread = s2.Read(buf, 0, buf.Length);
-            //         Console.WriteLine("sub msg:{0}", Encoding.UTF8.GetString(buf, 0, bytesread));
-            //     }
-            // }
-            Console.WriteLine("Hello World!");
+        }
+        static void Main(string[] args)
+        {
+            //ReqRep();
+            PubSub();
         }
     }
 }

@@ -16,6 +16,7 @@ namespace nats_simple_client
             using (var con = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault()))
             {
                 const string subject = "natscsharp";
+                const string replySubject = "replyto";
                 var sid = con.Subscribe(subject, null);
                 var dat = new byte[] { 0x32, 0x32 };
                 const int loopCount = 100000;
@@ -30,11 +31,11 @@ namespace nats_simple_client
                             while (true)
                             {
                                 var ret = con.WaitMessage();
-                                if (ret.id == NatsServerMessageId.Msg)
+                                if (ret.Kind == NatsServerMessageId.Msg)
                                 {
-                                    if (!string.IsNullOrEmpty(ret.msg.Reply))
+                                    if (!string.IsNullOrEmpty(ret.Msg.Reply))
                                     {
-                                        con.Publish(ret.msg.Reply, null, ret.msg.Data.ToArray());
+                                        con.Publish(ret.Msg.Reply, null, ret.Msg.Data.ToArray());
                                     }
                                     break;
                                 }
@@ -45,12 +46,26 @@ namespace nats_simple_client
                     Task.Run(() =>
                     {
                         Console.WriteLine($"begin publish");
-                        for (int i = 0; i < loopCount; i++)
+                        using (var producer = NatsConnection.Create("127.0.0.1", 4222, NatsConnectOption.CreateDefault(), true))
                         {
-                            var reply = con.Request(subject, "replyto", dat);
-                            if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                            for (int i = 0; i < loopCount; i++)
                             {
-                                Console.WriteLine($"reply:{i},{sw.Elapsed},{Encoding.UTF8.GetString(reply)}");
+                                var reqsid = producer.Subscribe(replySubject, null);
+                                producer.Unsubscribe(reqsid, 1);
+                                producer.Publish(subject, replySubject, dat);
+                                producer.Flush();
+                                for(int j = 0;j<5;j++)
+                                {
+                                    var res = producer.WaitMessage();
+                                    if(res.Kind == NatsServerMessageId.Msg)
+                                    {
+                                        if (i % (loopCount / 10) == (loopCount / 10 - 1))
+                                        {
+                                            Console.WriteLine($"reply:{i},{sw.Elapsed},{Encoding.UTF8.GetString(res.Msg.Data)}");
+                                        }
+                                        break;
+                                    }
+                                }
                             }
                         }
                     })

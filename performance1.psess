@@ -36,7 +36,7 @@
   </PostinstrumentEvent>
   <Binaries>
     <ProjBinary>
-      <Path>obj\Release\netcoreapp1.1\nats-simple-client.dll</Path>
+      <Path>obj\Debug\netcoreapp1.1\nats-simple-client.dll</Path>
       <ArgumentTimestamp>01/01/0001 00:00:00</ArgumentTimestamp>
       <Instrument>true</Instrument>
       <Sample>true</Sample>
@@ -50,7 +50,7 @@
       <LaunchMethod>Executable</LaunchMethod>
       <ExecutablePath>C:\Program Files\dotnet\dotnet.exe</ExecutablePath>
       <StartupDirectory>..\nats-simple-client</StartupDirectory>
-      <Arguments>exec &amp;quot;G:\src\gitrepos\dotnet-sandbox\nats-simple-client\bin\Release\netcoreapp1.1\nats-simple-client.dll&amp;quot;</Arguments>
+      <Arguments>exec &amp;quot;G:\src\gitrepos\dotnet-sandbox\nats-simple-client\bin\Debug\netcoreapp1.1\nats-simple-client.dll&amp;quot;</Arguments>
       <NetAppHost>IIS</NetAppHost>
       <NetBrowser>InternetExplorer</NetBrowser>
       <ExcludeSmallFuncs>true</ExcludeSmallFuncs>
@@ -68,19 +68,16 @@
   </Binaries>
   <Reports>
     <Report>
-      <Path>dotnet170524.vspx</Path>
+      <Path>dotnet170601.vspx</Path>
     </Report>
     <Report>
-      <Path>dotnet170524(1).vspx</Path>
+      <Path>dotnet170601(1).vspx</Path>
     </Report>
     <Report>
-      <Path>dotnet170524(2).vspx</Path>
+      <Path>dotnet170601(2).vspx</Path>
     </Report>
     <Report>
-      <Path>dotnet170524(3).vspx</Path>
-    </Report>
-    <Report>
-      <Path>dotnet170524(4).vspx</Path>
+      <Path>dotnet170601(3).vspx</Path>
     </Report>
   </Reports>
   <Launches>

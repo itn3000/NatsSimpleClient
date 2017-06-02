@@ -1,4 +1,4 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
     using System;
     using System.Net;
@@ -12,27 +12,27 @@ namespace nats_simple_client
     using System.Collections.Concurrent;
     using System.IO;
     using System.Buffers;
-    struct NatsOk
+    public struct NatsOk
     {
 
     }
-    struct NatsError
+    public struct NatsError
     {
         public string ErrorString;
     }
-    struct NatsPing
+    public struct NatsPing
     {
 
     }
-    struct NatsPong
+    public struct NatsPong
     {
 
     }
-    struct NatsNone
+    public struct NatsNone
     {
 
     }
-    struct NatsResponse
+    public struct NatsResponse
     {
         public readonly NatsMessage Msg;
         public readonly NatsError Error;
@@ -69,7 +69,7 @@ namespace nats_simple_client
         {
         }
     }
-    class NatsConnection : IDisposable
+    public class NatsConnection : IDisposable
     {
         public static NatsConnection Create(string host, int port, NatsConnectOption opt, bool manualFlush = false)
         {
@@ -418,7 +418,13 @@ namespace nats_simple_client
                     }
                     if (m_Client != null)
                     {
-                        m_Client.Dispose();
+                        #if NET452
+                        m_Client.Close();
+                        #else
+                        // m_Client.Close();
+                        var tmp = m_Client as IDisposable;
+                        tmp?.Dispose();
+                        #endif
                         m_Client = null;
                     }
                 }

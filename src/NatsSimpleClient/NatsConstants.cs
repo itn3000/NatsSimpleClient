@@ -1,9 +1,9 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
     static class NatsConstants
     {
     }
-    static class NatsServerMessageKind
+    public static class NatsServerMessageKind
     {
         public const string Info = "INFO";
         public const string Msg = "MSG";
@@ -11,7 +11,7 @@ namespace nats_simple_client
         public const string Err = "-ERR";
         public const string Ping = "PING";
     }
-    enum NatsServerMessageId
+    public enum NatsServerMessageId
     {
         Info,
         Msg,

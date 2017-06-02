@@ -1,4 +1,4 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
     using System.IO;
     using System.Text;

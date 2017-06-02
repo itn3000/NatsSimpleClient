@@ -1,7 +1,7 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
     using System.Collections.Generic;
-    struct NatsMessage
+    public struct NatsMessage
     {
         public string Subject {get;set;}
         public string Reply {get;set;}

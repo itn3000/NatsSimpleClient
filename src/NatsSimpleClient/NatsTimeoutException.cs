@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
-    class NatsTimeoutException : Exception
+    public class NatsTimeoutException : Exception
     {
         public NatsTimeoutException()
             : base()

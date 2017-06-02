@@ -1,6 +1,6 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
-    struct NatsConnectOption
+    public struct NatsConnectOption
     {
         public static NatsConnectOption CreateDefault()
         {

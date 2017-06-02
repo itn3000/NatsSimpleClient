@@ -1,6 +1,6 @@
-namespace nats_simple_client
+namespace NatsSimpleClient
 {
-    struct ServerInfo
+    public struct ServerInfo
     {
         public string server_id { get; set; }
         public string version { get; set; }

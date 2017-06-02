@@ -4,3 +4,4 @@ obj/
 .vs/
 output.bin
 *.vspx
+BenchmarkDotNet.Artifacts/

@@ -12,7 +12,7 @@ namespace NatsSimpleClient
     using System.Collections.Concurrent;
     using System.IO;
     using System.Buffers;
-    public struct NatsOk
+    struct NatsOk
     {
 
     }
@@ -20,15 +20,19 @@ namespace NatsSimpleClient
     {
         public string ErrorString;
     }
-    public struct NatsPing
+    struct NatsPing
     {
 
     }
-    public struct NatsPong
+    struct NatsPong
     {
 
     }
-    public struct NatsNone
+    struct NatsNone
+    {
+
+    }
+    struct NatsTimeout
     {
 
     }
@@ -36,36 +40,40 @@ namespace NatsSimpleClient
     {
         public readonly NatsMessage Msg;
         public readonly NatsError Error;
-        public readonly NatsServerMessageId Kind;
-        public NatsResponse(NatsMessage msg)
+        public readonly NatsServerResponseId Kind;
+        internal NatsResponse(NatsMessage msg)
         {
             Msg = msg;
             Error = default(NatsError);
-            Kind = NatsServerMessageId.Msg;
+            Kind = NatsServerResponseId.Msg;
         }
-        public NatsResponse(NatsError err)
+        internal NatsResponse(NatsError err)
         {
             Msg = default(NatsMessage);
             Error = err;
-            Kind = NatsServerMessageId.Err;
+            Kind = NatsServerResponseId.Err;
         }
-        private NatsResponse(NatsServerMessageId kind)
+        private NatsResponse(NatsServerResponseId kind)
         {
             Msg = default(NatsMessage);
             Error = default(NatsError);
             Kind = kind;
         }
-        public NatsResponse(NatsOk ok)
-            : this(NatsServerMessageId.Ok)
+        internal NatsResponse(NatsOk ok)
+            : this(NatsServerResponseId.Ok)
         {
 
         }
-        public NatsResponse(NatsPing ping)
-            : this(NatsServerMessageId.Ping)
+        internal NatsResponse(NatsPing ping)
+            : this(NatsServerResponseId.Ping)
         {
         }
-        public NatsResponse(NatsNone none)
-            : this(NatsServerMessageId.None)
+        internal NatsResponse(NatsNone none)
+            : this(NatsServerResponseId.None)
+        {
+        }
+        internal NatsResponse(NatsTimeout to)
+            : this(NatsServerResponseId.Timeout)
         {
         }
     }
@@ -125,7 +133,7 @@ namespace NatsSimpleClient
             {
                 throw new InvalidOperationException($"unknown connect response:{response}");
             }
-            var connectmsg = Encoding.UTF8.GetBytes($"{NatsClientMessageKind.Connect} {JSON.Serialize(opt)}");
+            var connectmsg = Encoding.UTF8.GetBytes($"{NatsClientMessageString.Connect} {JSON.Serialize(opt)}");
             stm.Write(connectmsg, 0, connectmsg.Length);
             stm.Write(CrLfBytes, 0, CrLfBytes.Length);
             stm.Flush();
@@ -138,12 +146,11 @@ namespace NatsSimpleClient
             m_Stream = new BufferedStream(m_BaseStream, 4 * 1024);
             InitializeConnection(m_Stream, m_PublishBuffer, opt);
         }
-
         public long Subscribe(string subject, string queue)
         {
             var qname = !string.IsNullOrEmpty(queue) ? $" {queue} " : " ";
             var sid = Interlocked.Increment(ref m_CurrentSid);
-            var str = $"{NatsClientMessageKind.Sub} {subject}{qname}{sid}";
+            var str = $"{NatsClientMessageString.Sub} {subject}{qname}{sid}";
             var msg = System.Text.Encoding.UTF8.GetBytes(str);
             var buf = m_BufferPool.Rent(msg.Length + CrLfBytes.Length);
             Buffer.BlockCopy(msg, 0, buf, 0, msg.Length);
@@ -163,7 +170,7 @@ namespace NatsSimpleClient
         {
             (m_SubscribeBuffer, m_CurrentReceivedLength) = await WritePublishMessageAsync(m_Stream, subject, replyTo, data, m_SubscribeBuffer, m_CurrentReceivedLength);
         }
-        void AllocateAndRead(Stream stm, TcpClient client, bool fromPool, ref byte[] buffer, ref int dataLength)
+        bool AllocateAndRead(Stream stm, TcpClient client, bool fromPool, ref byte[] buffer, ref int dataLength)
         {
             if (buffer.Length * 9 / 10 < dataLength)
             {
@@ -187,17 +194,18 @@ namespace NatsSimpleClient
             {
                 var bytesread = stm.Read(buffer, dataLength, buffer.Length - dataLength);
                 dataLength += bytesread;
+                return true;
             }
             else
             {
-                throw new NatsTimeoutException();
+                return false;
             }
         }
         async Task<(byte[] receiveData, int receiveDataLength)> WritePublishMessageAsync(Stream stm, string subject, string replyTo, byte[] data, byte[] receiveData, int receivedLength)
         {
             var reply = replyTo ?? "";
             var datalen = data != null ? data.Length : 0;
-            var str = $"{NatsClientMessageKind.Pub} {subject} {reply} {datalen}";
+            var str = $"{NatsClientMessageString.Pub} {subject} {reply} {datalen}";
             var msg = System.Text.Encoding.UTF8.GetBytes(str);
             stm.Write(msg, 0, msg.Length);
             stm.Write(CrLfBytes, 0, CrLfBytes.Length);
@@ -216,7 +224,7 @@ namespace NatsSimpleClient
         {
             var reply = replyTo ?? "";
             var datalen = data != null ? data.Length : 0;
-            var str = $"{NatsClientMessageKind.Pub} {subject} {reply} {datalen}";
+            var str = $"{NatsClientMessageString.Pub} {subject} {reply} {datalen}";
             var msg = System.Text.Encoding.UTF8.GetBytes(str);
             stm.Write(msg, 0, msg.Length);
             stm.Write(CrLfBytes, 0, CrLfBytes.Length);
@@ -232,7 +240,7 @@ namespace NatsSimpleClient
         }
         public void Unsubscribe(long sid)
         {
-            var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageKind.Unsub} {sid}");
+            var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageString.Unsub} {sid}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
             if (!m_ManualFlush)
@@ -242,7 +250,7 @@ namespace NatsSimpleClient
         }
         public void Unsubscribe(long sid, int afterMessageNum)
         {
-            var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageKind.Unsub} {sid} {afterMessageNum}");
+            var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageString.Unsub} {sid} {afterMessageNum}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
             if (!m_ManualFlush)
@@ -342,7 +350,10 @@ namespace NatsSimpleClient
             var crlfIndex = FindCrlf(new ValueArraySegment<byte>(receivedData, 0, currentDataLength));
             if (crlfIndex < 0)
             {
-                AllocateAndRead(stm, client, true, ref receivedData, ref currentDataLength);
+                if(!AllocateAndRead(stm, client, true, ref receivedData, ref currentDataLength))
+                {
+                    return new NatsResponse(new NatsTimeout());
+                }
                 return new NatsResponse(new NatsNone());
             }
             var headerString = Encoding.UTF8.GetString(receivedData.Take(crlfIndex).ToArray());
@@ -353,14 +364,14 @@ namespace NatsSimpleClient
             currentDataLength = remainingDataLength;
             switch (kindAndArg[0])
             {
-                case NatsServerMessageKind.Msg:
+                case NatsServerResponseString.Msg:
                     var msg = ParseMessage(stm, kindAndArg[1].Split(' '), ref receivedData, ref currentDataLength);
                     return new NatsResponse(msg);
-                case NatsServerMessageKind.Err:
+                case NatsServerResponseString.Err:
                     return new NatsResponse(new NatsError() { ErrorString = kindAndArg[1] });
-                case NatsServerMessageKind.Ok:
+                case NatsServerResponseString.Ok:
                     return new NatsResponse(new NatsOk());
-                case NatsBothMessageKind.Ping:
+                case NatsBothMessageString.Ping:
                     return new NatsResponse(new NatsPing());
                 default:
                     break;

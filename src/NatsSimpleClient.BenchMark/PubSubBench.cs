@@ -26,7 +26,7 @@ namespace NatsSimpleClient.BenchMark
                             while (true)
                             {
                                     var ret = con.WaitMessage();
-                                    if (ret.Kind != NatsServerMessageId.None)
+                                    if (ret.Kind != NatsServerResponseId.None)
                                     {
                                         break;
                                     }

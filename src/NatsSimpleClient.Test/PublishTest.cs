@@ -39,9 +39,9 @@ namespace NatsSimpleClient.Test
                                 try
                                 {
                                     var ret = con.WaitMessage();
-                                    if (ret.Kind != NatsServerMessageId.None)
+                                    if (ret.Kind != NatsServerResponseId.None)
                                     {
-                                        Assert.Equal(NatsServerMessageId.Msg, ret.Kind);
+                                        Assert.Equal(NatsServerResponseId.Msg, ret.Kind);
                                         Assert.Equal(i, Util.btoi32(ret.Msg.Data));
                                         break;
                                     }

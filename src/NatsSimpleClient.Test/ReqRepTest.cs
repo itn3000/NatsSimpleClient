@@ -36,7 +36,7 @@ namespace NatsSimpleClient.Test
                             while (true)
                             {
                                 var ret = con.WaitMessage();
-                                if (ret.Kind == NatsServerMessageId.Msg)
+                                if (ret.Kind == NatsServerResponseId.Msg)
                                 {
                                     if (!string.IsNullOrEmpty(ret.Msg.Reply))
                                     {
@@ -62,7 +62,7 @@ namespace NatsSimpleClient.Test
                                 for (int j = 0; j < 5; j++)
                                 {
                                     var res = producer.WaitMessage();
-                                    if (res.Kind == NatsServerMessageId.Msg)
+                                    if (res.Kind == NatsServerResponseId.Msg)
                                     {
                                         if (i % (loopCount / 10) == (loopCount / 10 - 1))
                                         {

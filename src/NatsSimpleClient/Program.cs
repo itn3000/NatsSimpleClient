@@ -82,10 +82,6 @@ namespace nats_simple_client
                             {
                                 i32tob(i, buf);
                                 producer.Publish(subject, null, buf);
-                                if(i % 10 == 9)
-                                {
-                                    producer.Flush();
-                                }
                             }
                             producer.Flush();
                             //await Task.Delay(1000).ConfigureAwait(false);

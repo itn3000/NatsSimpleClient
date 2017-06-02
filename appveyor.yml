@@ -1,0 +1,29 @@
+version: 1.0.{build}
+image: Visual Studio 2017
+install:
+- cmd: >-
+    appveyor DownloadFile https://github.com/nats-io/gnatsd/releases/download/v0.9.6/gnatsd-v0.9.6-windows-386.zip -FileName %USERPROFILE%\gnatsd.zip
+
+    7z x %USERPROFILE%\gnatsd.zip -y -o%USERPROFILE%
+build_script:
+- cmd: >-
+    dotnet restore
+
+    dotnet build
+test_script:
+- ps: >-
+    $natsexe = Join-Path $env:USERPROFILE "gnatsd-v0.9.6-windows-386/gnatsd.exe"
+
+    $proc = Start-Process -PassThru -FilePath $natsexe
+
+    dotnet test $(Join-Path $(Get-Location) "src\NatsSimpleClient.Test\NatsSimpleClient.Test.csproj")
+
+    $er = $LASTEXITCODE
+
+    $proc.Kill()
+
+    if($er -ne 0)
+
+    {
+      exit $er
+    }

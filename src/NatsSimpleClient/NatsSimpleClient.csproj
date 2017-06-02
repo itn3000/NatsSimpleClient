@@ -3,6 +3,14 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFrameworks>netstandard1.6;net452</TargetFrameworks>
+    <Version>0.0.0.1</Version>
+    <Title>Simple NATS Client Library</Title>
+    <Authors>Itn3000</Authors>
+    <Description>simple fast NATS client</Description>
+    <PackageLicenseUrl>https://github.com/itn3000/NatsSimpleClient/tree/master/LICENSE.md</PackageLicenseUrl>
+    <PackageProjectUrl>https://github.com/itn3000/NatsSimpleClient/</PackageProjectUrl>
+    <PackageTags>NATS</PackageTags>
+    <RepositoryUrl>https://github.com/itn3000/NatsSimpleClient/</RepositoryUrl>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Jil" Version="2.15.0"/>

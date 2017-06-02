@@ -71,9 +71,9 @@ namespace NatsSimpleClient
     }
     public class NatsConnection : IDisposable
     {
-        public static NatsConnection Create(string host, int port, NatsConnectOption opt, bool manualFlush = false)
+        public static NatsConnection Create(string host, int port, NatsConnectOption opt, bool manualFlush = false, int readTimeoutMilliSec = 10 * 1000)
         {
-            var ret = new NatsConnection(manualFlush);
+            var ret = new NatsConnection(manualFlush, readTimeoutMilliSec);
             try
             {
                 ret.Connect(host, port, opt);
@@ -94,18 +94,19 @@ namespace NatsSimpleClient
         NatsConnectOption m_Option;
         long m_CurrentSid = 1;
         static readonly byte[] CrLfBytes = new byte[] { 0x0d, 0x0a };
-        Task m_ConsumeDataThread;
         ServerInfo m_ServerInfo;
         CancellationTokenSource m_CancelToken = new CancellationTokenSource();
         ArrayPool<byte> m_BufferPool = System.Buffers.ArrayPool<byte>.Shared;
         int m_CurrentReceivedLength = 0;
         byte[] m_PublishBuffer = new byte[4096];
         bool m_ManualFlush = false;
+        int m_ReadTimeoutMilliSec;
 
-        private NatsConnection(bool manualFlush)
+        private NatsConnection(bool manualFlush, int readTimeout)
         {
             m_Client = new TcpClient();
             m_ManualFlush = manualFlush;
+            m_ReadTimeoutMilliSec = readTimeout;
         }
         void InitializeConnection(Stream stm, byte[] buf, NatsConnectOption opt)
         {
@@ -133,11 +134,9 @@ namespace NatsSimpleClient
         {
             m_Option = opt;
             m_Client.ConnectAsync(host, port).Wait();
-            //m_Client.ReceiveTimeout = 10 * 1000;
             m_BaseStream = m_Client.GetStream();
             m_Stream = new BufferedStream(m_BaseStream, 4 * 1024);
             InitializeConnection(m_Stream, m_PublishBuffer, opt);
-            m_ConsumeDataThread = Task.FromResult(0);
         }
 
         public long Subscribe(string subject, string queue)
@@ -150,7 +149,7 @@ namespace NatsSimpleClient
             Buffer.BlockCopy(msg, 0, buf, 0, msg.Length);
             Buffer.BlockCopy(CrLfBytes, 0, buf, msg.Length, 2);
             m_Stream.Write(buf, 0, msg.Length + 2);
-            if(!m_ManualFlush)
+            if (!m_ManualFlush)
             {
                 m_Stream.Flush();
             }
@@ -184,7 +183,7 @@ namespace NatsSimpleClient
                 }
                 buffer = tmp;
             }
-            if (m_Client.Client.Poll(10 * 1000 * 1000, SelectMode.SelectRead))
+            if (m_Client.Client.Poll(m_ReadTimeoutMilliSec * 1000, SelectMode.SelectRead))
             {
                 var bytesread = stm.Read(buffer, dataLength, buffer.Length - dataLength);
                 dataLength += bytesread;
@@ -236,7 +235,7 @@ namespace NatsSimpleClient
             var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageKind.Unsub} {sid}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            if(!m_ManualFlush)
+            if (!m_ManualFlush)
             {
                 m_Stream.Flush();
             }
@@ -246,7 +245,7 @@ namespace NatsSimpleClient
             var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageKind.Unsub} {sid} {afterMessageNum}");
             m_Stream.Write(msg, 0, msg.Length);
             m_Stream.Write(CrLfBytes, 0, CrLfBytes.Length);
-            if(!m_ManualFlush)
+            if (!m_ManualFlush)
             {
                 m_Stream.Flush();
             }
@@ -325,16 +324,8 @@ namespace NatsSimpleClient
                     }
                     else
                     {
-                        try
-                        {
-                            var bytesread = stm.Read(data, currentDataLength, size + 2 - currentDataLength);
-                            currentDataLength += bytesread;
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine($"error in read:{data.Length},{currentDataLength},{size},{e}");
-                            throw;
-                        }
+                        var bytesread = stm.Read(data, currentDataLength, size + 2 - currentDataLength);
+                        currentDataLength += bytesread;
                     }
                 }
 
@@ -402,11 +393,9 @@ namespace NatsSimpleClient
                                 m_Stream.Dispose();
                                 m_Stream = null;
                             }
-                            m_ConsumeDataThread.Wait();
                         }
-                        catch (Exception e)
+                        catch
                         {
-                            Console.WriteLine($"disposing task error:{e}");
                         }
                         m_CancelToken.Dispose();
                         m_CancelToken = null;
@@ -418,13 +407,13 @@ namespace NatsSimpleClient
                     }
                     if (m_Client != null)
                     {
-                        #if NET452
+#if NET452
                         m_Client.Close();
-                        #else
+#else
                         // m_Client.Close();
                         var tmp = m_Client as IDisposable;
                         tmp?.Dispose();
-                        #endif
+#endif
                         m_Client = null;
                     }
                 }

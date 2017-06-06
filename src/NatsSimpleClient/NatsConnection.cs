@@ -350,7 +350,7 @@ namespace NatsSimpleClient
             var crlfIndex = FindCrlf(new ValueArraySegment<byte>(receivedData, 0, currentDataLength));
             if (crlfIndex < 0)
             {
-                if(!AllocateAndRead(stm, client, true, ref receivedData, ref currentDataLength))
+                if (!AllocateAndRead(stm, client, true, ref receivedData, ref currentDataLength))
                 {
                     return new NatsResponse(new NatsTimeout());
                 }
@@ -378,6 +378,11 @@ namespace NatsSimpleClient
             }
             // message consumed
             return new NatsResponse(new NatsNone());
+        }
+        static readonly byte[] m_PongByte = Encoding.ASCII.GetBytes(new char[] { 'P', 'O', 'N', 'G', '\r', '\n' });
+        public void SendPong()
+        {
+            m_Stream.Write(m_PongByte, 0, m_PongByte.Length);
         }
 
         public NatsResponse WaitMessage()

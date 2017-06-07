@@ -10,6 +10,8 @@ build_script:
     dotnet restore
 
     dotnet build
+
+    dotnet pack -c Release
 test_script:
 - ps: >-
     $natsexe = Join-Path $env:USERPROFILE "gnatsd-v0.9.6-windows-386/gnatsd.exe"

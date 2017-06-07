@@ -8,7 +8,6 @@ install:
 build_script:
 - cmd: >-
     dotnet restore
-
     dotnet build
 test_script:
 - ps: >-

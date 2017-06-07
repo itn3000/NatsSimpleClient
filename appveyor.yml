@@ -8,15 +8,22 @@ install:
 build_script:
 - cmd: >-
     dotnet restore
+
     dotnet build
 test_script:
 - ps: >-
     $natsexe = Join-Path $env:USERPROFILE "gnatsd-v0.9.6-windows-386/gnatsd.exe"
+
     $proc = Start-Process -PassThru -FilePath $natsexe
+
     dotnet test $(Join-Path $(Get-Location) "src\NatsSimpleClient.Test\NatsSimpleClient.Test.csproj")
+
     $er = $LASTEXITCODE
+
     $proc.Kill()
+
     if($er -ne 0)
+
     {
       exit $er
     }

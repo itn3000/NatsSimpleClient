@@ -8,13 +8,21 @@ namespace NatsSimpleClient
         public const string Err = "-ERR";
         public const string Ping = "PING";
     }
+    /// <summary>Server response kind</summary>
+    /// <seealso>https://nats.io/documentation/internals/nats-protocol/</seealso>
     public enum NatsServerResponseId
     {
+        /// <summary>INFO</summary>
         Info,
+        /// <summary>MSG</summary>
         Msg,
+        /// <summary>+OK</summary>
         Ok,
+        /// <summary>-ERR</summary>
         Err,
+        /// <summary>PING</summary>
         Ping,
+        /// <summary>WaitMessage read timeout</summary>
         Timeout,
         None,
     }

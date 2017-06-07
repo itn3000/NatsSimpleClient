@@ -79,6 +79,13 @@ namespace NatsSimpleClient
     }
     public class NatsConnection : IDisposable
     {
+        /// <summary>Creating network connection to NATS Server</summary>
+        /// <param name="host">server address</param>
+        /// <param name="port">server port</param>
+        /// <param name="opt">connection options</param>
+        /// <param name="manualFlush">if true, you must call Flush() manually</param>
+        /// <param name="readTimeoutMilliSec">WaitMessage timeout</param>
+        /// <returns>client connection object to NATS Server</returns>
         public static NatsConnection Create(string host, int port, NatsConnectOption opt, bool manualFlush = false, int readTimeoutMilliSec = 10 * 1000)
         {
             var ret = new NatsConnection(manualFlush, readTimeoutMilliSec);
@@ -162,13 +169,13 @@ namespace NatsSimpleClient
             }
             return sid;
         }
+        /// <summary>publish message to subject</summary>
+        /// <param name="subject">subject name</param>
+        /// <param name="replyTo">inbox subject if you want to get reply from subscriber</param>
+        /// <param name="data">published byte data</param>
         public void Publish(string subject, string replyTo, byte[] data)
         {
             WritePublishMessage(m_Stream, subject, replyTo, data, ref m_SubscribeBuffer, ref m_CurrentReceivedLength);
-        }
-        public async Task PublishAsync(string subject, string replyTo, byte[] data)
-        {
-            (m_SubscribeBuffer, m_CurrentReceivedLength) = await WritePublishMessageAsync(m_Stream, subject, replyTo, data, m_SubscribeBuffer, m_CurrentReceivedLength);
         }
         bool AllocateAndRead(Stream stm, TcpClient client, bool fromPool, ref byte[] buffer, ref int dataLength)
         {
@@ -238,6 +245,9 @@ namespace NatsSimpleClient
                 m_Stream.Flush();
             }
         }
+        /// <summary>unsubscribe subject</summary>
+        /// <remarks>After you unsubscribe, you cannot receive message from NATS Server(timeout occured)</remarks>
+        /// <param name="sid">subscription ID(from Subscribe() return value)</param>
         public void Unsubscribe(long sid)
         {
             var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageString.Unsub} {sid}");
@@ -248,6 +258,10 @@ namespace NatsSimpleClient
                 m_Stream.Flush();
             }
         }
+        /// <summary>unsubscribe subject after specified number of messages received automatically</summary>
+        /// <remarks>this is usefull for request-reply pattern</remarks>
+        /// <param name="sid">subscription ID(from Subscribe() return value)</param>
+        /// <param name="afterMessageNum">number of messages before you unsubscribe.</param>
         public void Unsubscribe(long sid, int afterMessageNum)
         {
             var msg = Encoding.UTF8.GetBytes($"{NatsClientMessageString.Unsub} {sid} {afterMessageNum}");
@@ -258,6 +272,8 @@ namespace NatsSimpleClient
                 m_Stream.Flush();
             }
         }
+        /// <summary>flush network stream</summary>
+        /// <remarks>you must do when you set true to manual flush flag</remarks>
         public void Flush()
         {
             m_Stream.Flush();
@@ -380,11 +396,14 @@ namespace NatsSimpleClient
             return new NatsResponse(new NatsNone());
         }
         static readonly byte[] m_PongByte = Encoding.ASCII.GetBytes(new char[] { 'P', 'O', 'N', 'G', '\r', '\n' });
+        /// <summary>send pong message</summary>
+        /// <remarks>you must send PONG when you receive PING from NATS Server</remarks>
         public void SendPong()
         {
             m_Stream.Write(m_PongByte, 0, m_PongByte.Length);
         }
-
+        /// <summary>wait and receive message from server</summary>
+        /// <remarks>when network error, Exception will be thrown</remarks>
         public NatsResponse WaitMessage()
         {
             return ConsumeMessageOnce(m_BaseStream, m_Client, ref m_SubscribeBuffer, ref m_CurrentReceivedLength);
